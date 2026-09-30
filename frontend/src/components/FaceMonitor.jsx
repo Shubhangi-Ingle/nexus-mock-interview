@@ -1,23 +1,33 @@
 import { useEffect, useRef, useState } from "react";
 import * as faceapi from "face-api.js";
 
-const IconAlert = (p) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...p}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
-  </svg>
-);
+const CHECK_EVERY_MS = 1000; // how often we look for a face
+const MISSES_BEFORE_ALERT = 2; // consecutive misses before we warn (about 2 seconds)
 
-// Fills its parent tile completely — sizing/chrome (border, label, corners)
-// is the parent's job. Purely informational: never affects the interview.
-export default function FaceMonitor({ active }) {
+// Shows the candidate's camera and reports whether their face is in the frame.
+//   onStatusChange("loading" | "ok" | "missing" | "camera-blocked")
+// The parent decides how to display the warning. Purely informational:
+// it never affects the interview itself.
+export default function FaceMonitor({ active, onStatusChange }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const intervalRef = useRef(null);
   const missCountRef = useRef(0);
+  const onStatusRef = useRef(onStatusChange);
 
   const [modelsReady, setModelsReady] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
-  const [faceMissing, setFaceMissing] = useState(false);
+  const [cameraBlocked, setCameraBlocked] = useState(false);
+  const [status, setStatus] = useState("loading");
+
+  useEffect(() => {
+    onStatusRef.current = onStatusChange;
+  }, [onStatusChange]);
+
+  // Tell the parent whenever the status changes
+  useEffect(() => {
+    onStatusRef.current?.(status);
+  }, [status]);
 
   useEffect(() => {
     let cancelled = false;
@@ -26,7 +36,9 @@ export default function FaceMonitor({ active }) {
       .then(() => {
         if (!cancelled) setModelsReady(true);
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.warn("Face detection model failed to load. Is public/models/tiny_face_detector_model-shard1 present?", err);
+      });
     return () => {
       cancelled = true;
     };
@@ -46,8 +58,14 @@ export default function FaceMonitor({ active }) {
         streamRef.current = stream;
         if (videoRef.current) videoRef.current.srcObject = stream;
         setCameraReady(true);
+        setCameraBlocked(false);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) {
+          setCameraBlocked(true);
+          setStatus("camera-blocked");
+        }
+      });
 
     return () => {
       cancelled = true;
@@ -69,13 +87,15 @@ export default function FaceMonitor({ active }) {
         );
         if (result) {
           missCountRef.current = 0;
-          setFaceMissing(false);
+          setStatus("ok");
         } else {
           missCountRef.current += 1;
-          if (missCountRef.current >= 2) setFaceMissing(true);
+          if (missCountRef.current >= MISSES_BEFORE_ALERT) setStatus("missing");
         }
-      } catch (err) {}
-    }, 1500);
+      } catch (err) {
+        /* ignore a single failed frame */
+      }
+    }, CHECK_EVERY_MS);
 
     return () => clearInterval(intervalRef.current);
   }, [active, modelsReady, cameraReady]);
@@ -84,19 +104,12 @@ export default function FaceMonitor({ active }) {
 
   return (
     <>
-      <video
-        ref={videoRef}
-        autoPlay
-        muted
-        playsInline
-        className="w-full h-full object-cover scale-x-[-1]"
-      />
-      {faceMissing && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 animate-fade-in-up z-10">
-          <div className="flex items-center gap-1.5 bg-red-500 text-white text-[11px] font-semibold px-3 py-1.5 rounded-full shadow-lg whitespace-nowrap">
-            <IconAlert className="w-3.5 h-3.5 shrink-0" />
-            Face not detected
-          </div>
+      <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover scale-x-[-1]" />
+      {cameraBlocked && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/80 px-6 text-center">
+          <p className="text-sm text-white/80 leading-relaxed">
+            Camera access is blocked. Click the camera icon in the address bar, allow access and reload the page.
+          </p>
         </div>
       )}
     </>
