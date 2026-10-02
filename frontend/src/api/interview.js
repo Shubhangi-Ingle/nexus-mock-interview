@@ -6,6 +6,9 @@ export const startInterview = (subjectId, durationMinutes) =>
 export const submitAnswer = (sessionId, questionText, answerText) =>
   api.post(`/interviews/${sessionId}/answer`, { question_text: questionText, answer_text: answerText });
 
+export const getFollowUp = (sessionId, questionText, answerText) =>
+  api.post(`/interviews/${sessionId}/follow-up`, { question_text: questionText, answer_text: answerText });
+
 export const completeInterview = (sessionId) =>
   api.post(`/interviews/${sessionId}/complete`);
 

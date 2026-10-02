@@ -16,6 +16,7 @@ from app.models.interview_session import InterviewSession, StatusEnum
 from app.models.interview_answer import InterviewAnswer
 from app.models.report import Report
 from app.services.evaluation import evaluate_answer, generate_report
+from app.services.follow_up import generate_follow_up
 from app.schemas.report import ReportOut
 from app.schemas.interview import (
     InterviewStart,
@@ -23,6 +24,8 @@ from app.schemas.interview import (
     QuestionForInterview,
     AnswerSubmit,
     AnswerOut,
+    FollowUpRequest,
+    FollowUpOut,
     SessionOut,
     SessionHistoryOut,
 )
@@ -169,6 +172,20 @@ def submit_answer(session_id: UUID, payload: AnswerSubmit, db: Session = Depends
     db.commit()
     db.refresh(answer)
     return answer
+
+@router.post("/{session_id}/follow-up", response_model=FollowUpOut)
+def get_follow_up(session_id: UUID, payload: FollowUpRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your session")
+    if session.status != StatusEnum.in_progress:
+        raise HTTPException(status_code=400, detail="Session is not in progress")
+
+    subject = db.query(Subject).filter(Subject.id == session.subject_id).first()
+    follow_up = generate_follow_up(subject.name if subject else "", payload.question_text, payload.answer_text)
+    return FollowUpOut(follow_up=follow_up)
 
 
 @router.post("/{session_id}/complete", response_model=SessionOut)

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import PreInterviewCheck from "../components/PreInterviewCheck";
 import FaceMonitor from "../components/FaceMonitor";
-import { startInterview, submitAnswer, completeInterview, abandonInterview } from "../api/interview";
+import { startInterview, submitAnswer, getFollowUp, completeInterview, abandonInterview } from "../api/interview";
 import { fetchQuestionAudio, transcribeAudio } from "../api/voice";
 
 // Testing: skip the system check. Set to false to bring it back.
@@ -176,97 +176,32 @@ function useMicLevel(streamRef, recording, targetRef) {
   }, [recording]);
 }
 
-const BLUE_ORB = "radial-gradient(circle at 35% 30%, #BFDBFE, #3B82F6 45%, #1E3A8A 100%)";
-const ORB_STATES = {
-  speaking: { label: "Speaking", grad: BLUE_ORB, glow: "0 10px 50px 8px rgba(59,130,246,0.40)" },
-  listening: {
-    label: "Listening to you",
-    grad: "radial-gradient(circle at 35% 30%, #FED7AA, #F97316 50%, #9A3412 100%)",
-    glow: "0 10px 44px 8px rgba(249,115,22,0.35)",
-  },
-  thinking: { label: "Thinking", grad: BLUE_ORB, glow: "0 8px 30px 4px rgba(59,130,246,0.28)" },
-  idle: { label: "Ready", grad: BLUE_ORB, glow: "0 8px 30px 4px rgba(59,130,246,0.25)" },
-};
+const STATE_LABELS = { speaking: "Speaking", listening: "Listening to you", thinking: "Thinking", idle: "Ready" };
 
-const BAR_WEIGHTS = [0.3, 0.45, 0.65, 0.85, 1, 0.85, 0.65, 0.45, 0.3];
-
-const STATE_DOTS = {
-  speaking: "bg-blue-500 animate-pulse",
-  listening: "bg-orange-500 animate-pulse",
-  thinking: "bg-slate-400 animate-pulse",
-  idle: "bg-emerald-500",
-};
-
-// Fills its tile. Shows the interviewer as a glowing orb that follows the real voice.
-function VoiceOrb({ state, audioRef }) {
-  const cfg = ORB_STATES[state];
+// Interviewer tile: a person silhouette. Soft rings pulse outward only while the interviewer speaks.
+function InterviewerAvatar({ state }) {
   const speaking = state === "speaking";
-  const wrapRef = useRef(null);
-  const reactive = useSpeechLevel(audioRef, speaking, wrapRef);
-  const live = speaking && reactive; // driven by the real audio level
-
   return (
-    <div ref={wrapRef} className="absolute inset-0 flex flex-col items-center justify-center" style={{ "--lvl": 0 }}>
-      {/* faint rings for depth */}
-      <span className="absolute w-[44%] aspect-square rounded-full border border-blue-200/70" />
-      <span className="absolute w-[68%] aspect-square rounded-full border border-blue-200/40" />
-
-      {/* current state */}
-      <span
-        className="absolute top-3 left-3 flex items-center gap-2 text-[11px] font-semibold text-slate-600 bg-white/90 border border-slate-200 px-2.5 py-1 rounded-full shadow-sm"
-        aria-live="polite"
-      >
-        <span className={`w-1.5 h-1.5 rounded-full ${STATE_DOTS[state]}`} />
-        {cfg.label}
-      </span>
-
-      {/* orb */}
-      <div className="relative w-40 h-40 flex items-center justify-center">
+    <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
+      <div className="relative w-24 h-24">
         {speaking &&
-          [0, 1, 2].map((i) => (
+          [0, 1].map((i) => (
             <span
               key={i}
-              className="nx-anim absolute w-28 h-28 rounded-full border border-blue-400/50"
-              style={{ animation: `nx-ripple 2.4s ease-out ${i * 0.8}s infinite` }}
+              className="nx-anim absolute inset-0 rounded-full border-2 border-navy"
+              style={{ animation: `nx-ripple 2.4s ease-out ${i * 1.2}s infinite` }}
             />
           ))}
-        {state === "thinking" && (
-          <span
-            className="nx-anim absolute w-36 h-36 rounded-full border-2 border-blue-100 border-t-navy"
-            style={{ animation: "nx-spin 1s linear infinite" }}
-          />
-        )}
-        <div
-          className="nx-anim w-28 h-28 rounded-full"
-          style={{
-            background: cfg.grad,
-            boxShadow: cfg.glow,
-            animation: live ? "none" : speaking ? "nx-speak 1.1s ease-in-out infinite" : "nx-breathe 3.5s ease-in-out infinite",
-            transform: live ? "scale(calc(1 + var(--lvl, 0) * 0.5))" : undefined,
-            transition: live ? "transform 90ms linear" : undefined,
-          }}
-        />
+        <div className="relative w-full h-full rounded-full bg-blue-100 overflow-hidden">
+          <svg viewBox="0 0 64 64" className="w-full h-full" aria-hidden="true">
+            <circle cx="32" cy="25" r="10" fill="#1E3A8A" />
+            <path d="M12 58c2-13 10-19 20-19s18 6 20 19z" fill="#1E3A8A" />
+          </svg>
+        </div>
       </div>
-
-      {/* voice bars: only visible while the interviewer is speaking */}
-      <div
-        className={`mt-2 h-9 flex items-center gap-1.5 transition-opacity duration-300 ${speaking ? "opacity-100" : "opacity-0"}`}
-        aria-hidden="true"
-      >
-        {BAR_WEIGHTS.map((w, i) => (
-          <span
-            key={i}
-            className="nx-anim w-1.5 h-9 rounded-full bg-blue-500"
-            style={
-              live
-                ? { transform: `scaleY(calc(0.15 + var(--lvl, 0) * ${w}))`, transition: "transform 90ms linear" }
-                : speaking
-                  ? { animation: `nx-bar ${0.55 + (i % 4) * 0.12}s ease-in-out ${i * 0.06}s infinite` }
-                  : { transform: "scaleY(0.15)" }
-            }
-          />
-        ))}
-      </div>
+      <p className="text-sm font-semibold text-slate-500" aria-live="polite">
+        {STATE_LABELS[state]}
+      </p>
     </div>
   );
 }
@@ -348,6 +283,9 @@ export default function Interview() {
   const finishingRef = useRef(false);
   const autoAdvanceIntervalRef = useRef(null);
   const userTileRef = useRef(null);
+  const timeLeftRef = useRef(0);
+  const submittingRef = useRef(false);
+  timeLeftRef.current = timeLeft;
 
   const greetingText = `Welcome, ${name}. Today we'll be conducting a ${duration} minute mock interview on ${subject?.name}. Shall we begin your interview?`;
 
@@ -562,19 +500,45 @@ export default function Interview() {
   };
 
   const submitCurrentAnswer = async (finalText) => {
-    if (finishingRef.current || finished) return;
+    if (finishingRef.current || finished || submittingRef.current) return;
     const trimmed = (finalText || "").trim();
     if (!trimmed) {
       setError("Please record an answer before continuing.");
       return;
     }
 
+    submittingRef.current = true;
     clearAutoAdvance();
     setError("");
     setSubmitting(true);
 
     try {
-      await submitAnswer(sessionId, questions[currentIndex].question_text, trimmed);
+      const current = questions[currentIndex];
+      await submitAnswer(sessionId, current.question_text, trimmed);
+
+      // Ask the AI for one follow-up (never for a follow-up itself, and not when time is nearly up)
+      let followUp = null;
+      if (!current.is_follow_up && timeLeftRef.current > 60) {
+        try {
+          const res = await getFollowUp(sessionId, current.question_text, trimmed);
+          followUp = res.data.follow_up;
+        } catch {
+          // no follow-up, carry on as normal
+        }
+      }
+      if (finishingRef.current) return;
+      if (followUp) {
+        setQuestions((qs) => [
+          ...qs.slice(0, currentIndex + 1),
+          { question_text: followUp, is_follow_up: true },
+          ...qs.slice(currentIndex + 1),
+        ]);
+        setCurrentIndex((i) => i + 1);
+        answerRef.current = "";
+        setAnswerPreview("");
+        setSubmitting(false);
+        return;
+      }
 
       if (currentIndex + 1 < questions.length) {
         setCurrentIndex((i) => i + 1);
@@ -596,6 +560,8 @@ export default function Interview() {
       }
       setError(err.response?.data?.detail || "Failed to submit answer.");
       setSubmitting(false);
+    } finally {
+      submittingRef.current = false;
     }
   };
 
@@ -734,7 +700,7 @@ export default function Interview() {
   const faceDot =
     faceStatus === "ok" ? "bg-emerald-500" : showFaceAlert ? "bg-red-500 animate-pulse" : "bg-slate-300";
 
-  const cardLabel = inCall ? `Question ${currentIndex + 1} of ${questions.length}` : phase === "greeting" ? "Welcome" : "Getting ready";
+  const cardLabel = inCall ? `Question ${currentIndex + 1}` : phase === "greeting" ? "Welcome" : "Getting ready";
 
   return (
     <div className="h-screen flex flex-col bg-[#F4F6FA] overflow-hidden">
@@ -794,8 +760,8 @@ export default function Interview() {
         <div className="min-h-full flex flex-col items-center justify-center gap-5 py-6">
           <div className="w-full max-w-[1240px] grid grid-cols-1 md:grid-cols-2 gap-5">
             {/* Interviewer */}
-            <Tile label="Nexus AI Interviewer" className="bg-[radial-gradient(circle_at_50%_45%,#DCE9FF_0%,#EEF4FF_55%,#F8FAFF_100%)]">
-              <VoiceOrb state={orbState} audioRef={audioRef} />
+            <Tile label="Nexus AI Interviewer" className="bg-slate-50">
+              <InterviewerAvatar state={orbState} />
             </Tile>
 
             {/* Candidate */}
@@ -827,21 +793,8 @@ export default function Interview() {
 
           {/* Question + answer controls, kept together */}
           <section className="w-full max-w-[1240px] bg-white rounded-2xl border border-slate-200 p-6 sm:p-7 shadow-[0_8px_24px_-14px_rgba(15,27,76,0.25)]">
-            <div className="flex items-center justify-between gap-4 mb-3">
-              <p className="text-sm font-semibold text-brand-orange">{cardLabel}</p>
-              {inCall && (
-                <div className="flex items-center gap-1.5" aria-hidden="true">
-                  {questions.map((_, i) => (
-                    <span
-                      key={i}
-                      className={`h-1.5 rounded-full transition-all duration-300 ${
-                        i < currentIndex ? "w-6 bg-brand-orange" : i === currentIndex ? "w-8 bg-navy" : "w-6 bg-slate-200"
-                      }`}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
+            <p className="text-sm font-semibold text-brand-orange mb-3">{cardLabel}</p>
+        
 
             <p className="text-xl sm:text-2xl font-semibold text-navy font-display leading-snug">{captionText}</p>
 

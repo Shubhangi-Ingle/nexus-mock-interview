@@ -20,6 +20,13 @@ class AnswerSubmit(BaseModel):
     question_text: str
     answer_text: str
 
+class FollowUpRequest(BaseModel):
+    question_text: str
+    answer_text: str
+
+class FollowUpOut(BaseModel):
+    follow_up: Optional[str] = None
+
 class AnswerOut(BaseModel):
     id: UUID
     question_text: str
